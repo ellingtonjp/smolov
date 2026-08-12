@@ -1,0 +1,12 @@
+services:
+  smolov:
+    build: .
+    container_name: smolov-tracker
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./data:/app/data
+    environment:
+      - PORT=3000
+      - DB_PATH=/app/data/smolov.db

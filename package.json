@@ -1,0 +1,16 @@
+{
+  "name": "smolov-tracker",
+  "version": "1.0.0",
+  "description": "Self-hosted Smolov squat program tracker",
+  "main": "server/index.js",
+  "scripts": {
+    "start": "node server/index.js"
+  },
+  "license": "MIT",
+  "engines": {
+    "node": ">=22.5.0"
+  },
+  "dependencies": {
+    "express": "^4.19.2"
+  }
+}
