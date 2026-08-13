@@ -63,14 +63,23 @@ function todayStr() {
 
 function pctLabel(seg) {
   if (seg.pct == null) return '';
-  const v = seg.pct * 100;
-  return `${Number.isInteger(v) ? v : v.toFixed(1)}%`;
+  // Round away float noise (0.55 * 100 = 55.00000000000001) before printing.
+  return `${Math.round(seg.pct * 1000) / 10}%`;
 }
 
-function prescriptionLabel(seg) {
-  if (seg.special) return seg.guidance;
-  if (seg.sets == null && seg.reps == null) return `Speed work @ ${pctLabel(seg)}`;
-  return `${seg.sets} x ${seg.reps} @ ${pctLabel(seg)}`;
+// Compact, single-line prescription for the (read-only) Target column.
+function targetLabel(seg) {
+  if (seg.special === 'rest') return 'Rest day';
+  if (seg.special === 'test') return 'Test 1RM';
+  // Weeks 4/5 add a flat increase on top of the percentage; show it, since the
+  // target weight is computed as 1RM * pct + add.
+  const add = seg.base_add ? ` + ${seg.base_add}` : '';
+  if (seg.reps == null) return `@ ${pctLabel(seg)}${add}`; // speed work — sets/reps are the lifter's call
+  return `${seg.reps} @ ${pctLabel(seg)}${add}`;
+}
+
+function unitsLabel() {
+  return (STATE.settings.units || 'lb') === 'kg' ? 'kg' : 'lbs';
 }
 
 function weightLabel(v) {
@@ -149,7 +158,12 @@ function renderNextView() {
   const status = dayStatus(day);
   const dayNote = STATE.dayNotes[`${day.week}-${day.day}`] || '';
 
-  const uniqueGuidance = [...new Set(day.segments.map((s) => s.guidance))];
+  // The Target column spells out every set, so the day's guidance line is only
+  // worth showing when the rows themselves don't say enough: rest/test days and
+  // the open-ended speed-work days.
+  const isRestDay = day.segments.every((s) => s.special === 'rest');
+  const needsGuidance = !isRestDay && (Boolean(day.segments[0].special) || day.segments[0].reps == null);
+  const uniqueGuidance = needsGuidance ? [...new Set(day.segments.map((s) => s.guidance))] : [];
 
   return `
     <div class="card">
@@ -168,8 +182,19 @@ function renderNextView() {
         </div>
         <span class="badge ${status}">${status}</span>
       </div>
-      ${uniqueGuidance.filter((g) => g && day.segments.length > 1 && !day.segments[0].special).map((g) => `<div class="guidance">${escapeHtml(g)}</div>`).join('')}
-      ${day.segments.map((seg) => renderSegmentRow(seg)).join('')}
+      ${uniqueGuidance.filter(Boolean).map((g) => `<div class="guidance">${escapeHtml(g)}</div>`).join('')}
+
+      <div class="set-table">
+        ${isRestDay ? '' : `
+          <div class="set-head">
+            <span>Target</span>
+            <span>${unitsLabel()}</span>
+            <span>reps</span>
+            <span>rpe</span>
+            <span></span>
+          </div>`}
+        ${day.segments.map((seg) => renderSetRow(seg)).join('')}
+      </div>
 
       <div class="field field-full" style="margin-top:0.75rem;">
         <label>Day notes (how the session felt, cues, adjustments)</label>
@@ -179,97 +204,35 @@ function renderNextView() {
   `;
 }
 
-function renderSegmentRow(seg) {
+// One set per line: Target (read-only) | weight | reps | rpe | done.
+// Weight and reps are pre-filled with the prescription until the lifter
+// overrides them; RPE is intentionally never pre-filled.
+function renderSetRow(seg) {
   const checked = seg.status === 'complete';
-  const label = seg.special ? seg.guidance : prescriptionLabel(seg);
-
-  return `
-    <div class="segment-row ${checked ? 'complete' : ''}">
-      <div class="segment-top">
-        <div class="checkbox ${checked ? 'checked' : ''}" data-action="toggle-check" data-id="${seg.id}">✓</div>
-        <div class="segment-info">
-          <div class="segment-title">${escapeHtml(label)}</div>
-          ${seg.special ? '' : `<div class="segment-sub">Target ${weightLabel(seg.target_weight)}</div>`}
-        </div>
-        ${seg.special ? '' : `<div class="segment-target">${weightLabel(seg.target_weight)}</div>`}
-      </div>
-      ${renderSegmentDetails(seg)}
-    </div>
-  `;
-}
-
-function renderSegmentDetails(seg) {
-  // Fields default to the prescribed values until the lifter overrides them.
-  // RPE is intentionally never pre-filled.
-  const defaultDate = seg.date ?? todayStr();
+  const check = `<div class="checkbox ${checked ? 'checked' : ''}" data-action="toggle-check" data-id="${seg.id}" role="checkbox" aria-checked="${checked}" aria-label="Mark set complete">✓</div>`;
 
   if (seg.special === 'rest') {
     return `
-      <div class="segment-details">
-        <div class="field">
-          <label>Date</label>
-          <input type="date" data-field="date" data-id="${seg.id}" value="${defaultDate}" />
-        </div>
-        <div class="field field-full">
-          <label>Notes</label>
-          <input type="text" data-field="notes" data-id="${seg.id}" value="${escapeAttr(seg.notes || '')}" />
-        </div>
-      </div>
-    `;
-  }
-  if (seg.special === 'test') {
-    return `
-      <div class="segment-details">
-        <div class="field">
-          <label>Tested weight</label>
-          <input type="number" step="0.5" data-field="actual_weight" data-id="${seg.id}" value="${seg.actual_weight ?? ''}" />
-        </div>
-        <div class="field">
-          <label>RPE (optional)</label>
-          <input type="number" step="0.5" min="1" max="10" data-field="rpe" data-id="${seg.id}" value="${seg.rpe ?? ''}" />
-        </div>
-        <div class="field">
-          <label>Date</label>
-          <input type="date" data-field="date" data-id="${seg.id}" value="${defaultDate}" />
-        </div>
-        <div class="field field-full">
-          <label>Notes</label>
-          <input type="text" data-field="notes" data-id="${seg.id}" value="${escapeAttr(seg.notes || '')}" placeholder="e.g. new 1RM = 320" />
-        </div>
+      <div class="set-row rest ${checked ? 'complete' : ''}">
+        <div class="set-target">${escapeHtml(targetLabel(seg))}</div>
+        ${check}
       </div>
     `;
   }
 
-  const defaultWeight = seg.actual_weight ?? seg.target_weight;
-  const defaultSets = seg.sets_done ?? seg.sets;
-  const defaultReps = seg.reps_done ?? seg.reps;
+  const defaultWeight = seg.actual_weight ?? (seg.special === 'test' ? null : seg.target_weight);
+  const defaultReps = seg.reps_done ?? (seg.special === 'test' ? null : seg.reps);
 
   return `
-    <div class="segment-details">
-      <div class="field">
-        <label>Actual weight</label>
-        <input type="number" step="0.5" data-field="actual_weight" data-id="${seg.id}" value="${defaultWeight ?? ''}" />
-      </div>
-      <div class="field">
-        <label>Sets done</label>
-        <input type="number" step="1" data-field="sets_done" data-id="${seg.id}" value="${defaultSets ?? ''}" />
-      </div>
-      <div class="field">
-        <label>Reps done</label>
-        <input type="number" step="1" data-field="reps_done" data-id="${seg.id}" value="${defaultReps ?? ''}" />
-      </div>
-      <div class="field">
-        <label>RPE (optional)</label>
-        <input type="number" step="0.5" min="1" max="10" data-field="rpe" data-id="${seg.id}" value="${seg.rpe ?? ''}" />
-      </div>
-      <div class="field">
-        <label>Date</label>
-        <input type="date" data-field="date" data-id="${seg.id}" value="${defaultDate}" />
-      </div>
-      <div class="field field-full">
-        <label>Notes</label>
-        <input type="text" data-field="notes" data-id="${seg.id}" value="${escapeAttr(seg.notes || '')}" />
-      </div>
+    <div class="set-row ${checked ? 'complete' : ''}">
+      <div class="set-target">${escapeHtml(targetLabel(seg))}</div>
+      <input class="cell" type="number" inputmode="decimal" step="0.5" aria-label="Weight"
+             data-field="actual_weight" data-id="${seg.id}" value="${defaultWeight ?? ''}" />
+      <input class="cell" type="number" inputmode="numeric" step="1" aria-label="Reps"
+             data-field="reps_done" data-id="${seg.id}" value="${defaultReps ?? ''}" />
+      <input class="cell" type="number" inputmode="decimal" step="0.5" min="1" max="10" aria-label="RPE"
+             data-field="rpe" data-id="${seg.id}" value="${seg.rpe ?? ''}" />
+      ${check}
     </div>
   `;
 }
@@ -340,12 +303,13 @@ function renderProgressView() {
     .slice()
     .sort((a, b) => (a.date || '').localeCompare(b.date || '') || a.sort_order - b.sort_order);
 
+  // Each segment row is already a single set, so tonnage per row is just weight * reps.
   const totalPlannedTonnage = STATE.segments.reduce((sum, s) => {
-    if (s.target_weight != null && s.sets != null && s.reps != null) return sum + s.target_weight * s.sets * s.reps;
+    if (s.target_weight != null && s.reps != null) return sum + s.target_weight * s.reps;
     return sum;
   }, 0);
   const totalActualTonnage = completed.reduce((sum, s) => {
-    if (s.actual_weight != null && s.sets_done != null && s.reps_done != null) return sum + s.actual_weight * s.sets_done * s.reps_done;
+    if (s.actual_weight != null && s.reps_done != null) return sum + s.actual_weight * s.reps_done;
     return sum;
   }, 0);
 
@@ -361,8 +325,8 @@ function renderProgressView() {
   let cumPlanned = 0, cumActual = 0;
   completed.forEach((s) => {
     idx += 1;
-    if (s.target_weight != null && s.sets != null && s.reps != null) cumPlanned += s.target_weight * s.sets * s.reps;
-    if (s.actual_weight != null && s.sets_done != null && s.reps_done != null) cumActual += s.actual_weight * s.sets_done * s.reps_done;
+    if (s.target_weight != null && s.reps != null) cumPlanned += s.target_weight * s.reps;
+    if (s.actual_weight != null && s.reps_done != null) cumActual += s.actual_weight * s.reps_done;
     tonnagePoints.push({ idx, cumPlanned, cumActual, label: `W${s.week}D${s.day}` });
   });
 
@@ -544,7 +508,6 @@ APP.addEventListener('click', (e) => {
       const fields = { status: 'complete' };
       if (!seg.special) {
         if (seg.actual_weight == null) fields.actual_weight = seg.target_weight;
-        if (seg.sets_done == null) fields.sets_done = seg.sets;
         if (seg.reps_done == null) fields.reps_done = seg.reps;
       }
       if (!seg.date) fields.date = todayStr();
@@ -605,7 +568,7 @@ APP.addEventListener('change', (e) => {
     const id = Number(field.dataset.id);
     const key = field.dataset.field;
     let val = field.value;
-    if (['actual_weight', 'sets_done', 'reps_done', 'rpe'].includes(key)) {
+    if (['actual_weight', 'reps_done', 'rpe'].includes(key)) {
       val = val === '' ? null : Number(val);
     }
     patchSegment(id, { [key]: val });

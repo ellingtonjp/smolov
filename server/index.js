@@ -10,7 +10,7 @@ seedIfEmpty();
 const app = express();
 app.use(express.json());
 
-const SEGMENT_FIELDS = ['status', 'actual_weight', 'sets_done', 'reps_done', 'rpe', 'notes', 'date'];
+const SEGMENT_FIELDS = ['status', 'actual_weight', 'reps_done', 'rpe', 'notes', 'date'];
 const SETTINGS_FIELDS = ['starting_1rm', 'new_1rm', 'units', 'rounding', 'week4_add', 'week5_add'];
 
 function getState() {
@@ -85,8 +85,8 @@ app.get('/api/export.json', (req, res) => {
 
 app.get('/api/export.csv', (req, res) => {
   const segments = db.prepare('SELECT * FROM segments ORDER BY sort_order ASC').all();
-  const cols = ['phase', 'week', 'day', 'segment', 'sets', 'reps', 'pct', 'one_rm_basis', 'base_add',
-    'target_weight', 'status', 'actual_weight', 'sets_done', 'reps_done', 'rpe', 'date', 'notes', 'guidance'];
+  const cols = ['phase', 'week', 'day', 'segment', 'set_number', 'total_sets', 'reps', 'pct', 'one_rm_basis', 'base_add',
+    'target_weight', 'status', 'actual_weight', 'reps_done', 'rpe', 'date', 'notes', 'guidance'];
   const escape = (v) => {
     if (v == null) return '';
     const s = String(v);

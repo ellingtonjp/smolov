@@ -11,21 +11,30 @@
 
 const ROWS = [];
 
+// Each prescribed block (e.g. "3 x 8 @ 65%") is expanded into one row per
+// individual set, so every set gets its own row/checkbox in the app.
+// Switching-phase blocks have no fixed set count (sets/reps are left for the
+// lifter to choose), so they stay a single editable row.
 function addDay(phase, week, dayNum, oneRmRef, guidance, segRows, baseAddRef = null) {
   segRows.forEach(([segment, sets, reps, pct]) => {
-    ROWS.push({
-      phase,
-      week,
-      day: dayNum,
-      segment: String(segment),
-      sets,
-      reps,
-      pct: pct / 100,
-      oneRmRef,
-      baseAddRef,
-      guidance,
-      special: null,
-    });
+    const totalSets = sets;
+    const count = sets == null ? 1 : sets;
+    for (let setNumber = 1; setNumber <= count; setNumber++) {
+      ROWS.push({
+        phase,
+        week,
+        day: dayNum,
+        segment: String(segment),
+        setNumber,
+        totalSets,
+        reps,
+        pct: pct / 100,
+        oneRmRef,
+        baseAddRef,
+        guidance,
+        special: null,
+      });
+    }
   });
 }
 
@@ -35,7 +44,8 @@ function addSpecial(phase, week, dayNum, special, guidance) {
     week,
     day: dayNum,
     segment: '—',
-    sets: null,
+    setNumber: null,
+    totalSets: null,
     reps: null,
     pct: null,
     oneRmRef: null,

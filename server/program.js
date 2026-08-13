@@ -12,14 +12,24 @@ const DEFAULT_SETTINGS = {
   week5_add: '30',
 };
 
-// Segments already logged on the spreadsheet before this app existed
-// (Week 1 / Day 1, all four segments). Imported once at seed time so the
-// app starts in sync with real progress. Matched by (week, day, segment).
+// Sets already logged on the spreadsheet before this app existed (Week 1 /
+// Day 1, all four prescribed blocks). Imported once at seed time, one row
+// per individual set, so the app starts in sync with real progress.
+// Matched by (week, day, segment, set_number).
+function expandInitialLog(week, day, segment, setNumbers, fields) {
+  const { notes, ...rest } = fields;
+  return setNumbers.map((setNumber, i) => ({
+    week, day, segment, setNumber,
+    ...rest,
+    notes: i === 0 ? (notes || null) : null,
+  }));
+}
+
 const INITIAL_LOG = [
-  { week: 1, day: 1, segment: '1', actualWeight: 185, setsDone: 3, repsDone: 8, rpe: 6, date: '2026-08-10', notes: null },
-  { week: 1, day: 1, segment: '2', actualWeight: 200, setsDone: 1, repsDone: 5, rpe: 6, date: '2026-08-10', notes: null },
-  { week: 1, day: 1, segment: '3', actualWeight: 210, setsDone: 2, repsDone: 2, rpe: 6, date: '2026-08-10', notes: "Didn't count the weight right" },
-  { week: 1, day: 1, segment: '4', actualWeight: 230, setsDone: 1, repsDone: 1, rpe: 6, date: '2026-08-10', notes: null },
+  ...expandInitialLog(1, 1, '1', [1, 2, 3], { actualWeight: 185, repsDone: 8, rpe: 6, date: '2026-08-10' }),
+  ...expandInitialLog(1, 1, '2', [1], { actualWeight: 200, repsDone: 5, rpe: 6, date: '2026-08-10' }),
+  ...expandInitialLog(1, 1, '3', [1, 2], { actualWeight: 210, repsDone: 2, rpe: 6, date: '2026-08-10', notes: "Didn't count the weight right" }),
+  ...expandInitialLog(1, 1, '4', [1], { actualWeight: 230, repsDone: 1, rpe: 6, date: '2026-08-10' }),
 ];
 
 function getSettings() {
@@ -53,10 +63,10 @@ function seedIfEmpty() {
 
   const insert = db.prepare(`
     INSERT INTO segments
-      (phase, week, day, segment, sets, reps, pct, one_rm_ref, base_add_ref,
+      (phase, week, day, segment, set_number, total_sets, reps, pct, one_rm_ref, base_add_ref,
        one_rm_basis, base_add, target_weight, status, sort_order, guidance, special)
     VALUES
-      (@phase, @week, @day, @segment, @sets, @reps, @pct, @oneRmRef, @baseAddRef,
+      (@phase, @week, @day, @segment, @setNumber, @totalSets, @reps, @pct, @oneRmRef, @baseAddRef,
        @oneRmBasis, @baseAdd, @targetWeight, 'planned', @sortOrder, @guidance, @special)
   `);
 
@@ -68,13 +78,13 @@ function seedIfEmpty() {
   // Apply already-completed log entries from the original spreadsheet.
   const markDone = db.prepare(`
     UPDATE segments SET
-      status = 'complete', actual_weight = ?, sets_done = ?, reps_done = ?,
+      status = 'complete', actual_weight = ?, reps_done = ?,
       rpe = ?, date = ?, notes = ?
-    WHERE week = ? AND day = ? AND segment = ?
+    WHERE week = ? AND day = ? AND segment = ? AND set_number = ?
   `);
   const tx2 = db.transaction((entries) => {
     entries.forEach((e) => {
-      markDone.run(e.actualWeight, e.setsDone, e.repsDone, e.rpe, e.date, e.notes, e.week, e.day, e.segment);
+      markDone.run(e.actualWeight, e.repsDone, e.rpe, e.date, e.notes, e.week, e.day, e.segment, e.setNumber);
     });
   });
   tx2(INITIAL_LOG);
@@ -88,11 +98,11 @@ function regeneratePlanned() {
   const computed = computeRows(settings);
   const update = db.prepare(`
     UPDATE segments SET one_rm_basis = ?, base_add = ?, target_weight = ?
-    WHERE week = ? AND day = ? AND segment = ? AND status != 'complete'
+    WHERE week = ? AND day = ? AND segment = ? AND set_number = ? AND status != 'complete'
   `);
   const tx = db.transaction((rows) => {
     rows.forEach((r) => {
-      update.run(r.oneRmBasis, r.baseAdd, r.targetWeight, r.week, r.day, r.segment);
+      update.run(r.oneRmBasis, r.baseAdd, r.targetWeight, r.week, r.day, r.segment, r.setNumber);
     });
   });
   tx(computed);
