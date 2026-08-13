@@ -94,6 +94,12 @@ body {
 
 .muted { color: var(--text-dim); font-size: 0.85rem; }
 
+.day-summary {
+  font-style: italic;
+  font-size: 0.5rem;
+  opacity: 0.85;
+}
+
 .day-header {
   display: flex;
   justify-content: space-between;

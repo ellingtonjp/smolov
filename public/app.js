@@ -78,6 +78,24 @@ function targetLabel(seg) {
   return `${seg.reps} @ ${pctLabel(seg)}${add}`;
 }
 
+// Compact one-line prescription for a whole day ("4x9 @ 70% + 20"), rebuilt
+// from the set rows so the Week 4/5 adds show as real numbers. Rest/test days
+// have no prescription, so they get no summary.
+function daySummary(day) {
+  const blocks = [];
+  day.segments.forEach((s) => {
+    if (s.special) return;
+    const last = blocks[blocks.length - 1];
+    if (!last || last.segment !== s.segment) blocks.push({ ...s });
+  });
+  if (blocks.length === 0) return '';
+  return blocks.map((s) => {
+    const add = s.base_add ? ` + ${s.base_add}` : '';
+    const scheme = s.total_sets != null && s.reps != null ? `${s.total_sets}x${s.reps} ` : '';
+    return `${scheme}@ ${pctLabel(s)}${add}`;
+  }).join(', ');
+}
+
 function unitsLabel() {
   return (STATE.settings.units || 'lb') === 'kg' ? 'kg' : 'lbs';
 }
@@ -157,6 +175,7 @@ function renderNextView() {
   const next = days[idx + 1];
   const status = dayStatus(day);
   const dayNote = STATE.dayNotes[`${day.week}-${day.day}`] || '';
+  const summary = daySummary(day);
 
   // The Target column spells out every set, so the day's guidance line is only
   // worth showing when the rows themselves don't say enough: rest/test days and
@@ -178,7 +197,7 @@ function renderNextView() {
       <div class="day-header">
         <div>
           <h2>Week ${day.week}, Day ${day.day}</h2>
-          <div class="muted">${day.phase}</div>
+          <div class="muted">${day.phase}${summary ? ` <span class="day-summary">${escapeHtml(summary)}</span>` : ''}</div>
         </div>
         <span class="badge ${status}">${status}</span>
       </div>
