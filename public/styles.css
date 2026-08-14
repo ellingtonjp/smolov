@@ -175,6 +175,14 @@ body {
   padding-left: 0.15rem;
 }
 
+.set-target-weight {
+  margin-left: 0.3rem;
+  font-size: 0.72rem;
+  font-style: italic;
+  font-weight: 500;
+  color: var(--text-dim);
+}
+
 .set-row input.cell {
   padding: 0.4rem 0.25rem;
   text-align: center;

@@ -67,15 +67,20 @@ function pctLabel(seg) {
   return `${Math.round(seg.pct * 1000) / 10}%`;
 }
 
-// Compact, single-line prescription for the (read-only) Target column.
-function targetLabel(seg) {
-  if (seg.special === 'rest') return 'Rest day';
-  if (seg.special === 'test') return 'Test 1RM';
+// Prescription for the (read-only) Target column: the scheme ("9 @ 70% + 20")
+// followed by the weight it works out to, which the row renders smaller.
+function targetParts(seg) {
+  if (seg.special === 'rest') return { scheme: 'Rest day', weight: '' };
+  if (seg.special === 'test') return { scheme: 'Test 1RM', weight: '' };
+
   // Weeks 4/5 add a flat increase on top of the percentage; show it, since the
   // target weight is computed as 1RM * pct + add.
   const add = seg.base_add ? ` + ${seg.base_add}` : '';
-  if (seg.reps == null) return `@ ${pctLabel(seg)}${add}`; // speed work — sets/reps are the lifter's call
-  return `${seg.reps} @ ${pctLabel(seg)}${add}`;
+  const reps = seg.reps == null ? '' : `${seg.reps} `; // speed work — sets/reps are the lifter's call
+  return {
+    scheme: `${reps}@ ${pctLabel(seg)}${add}`,
+    weight: seg.target_weight != null ? `${seg.target_weight}${STATE.settings.units || 'lb'}` : '',
+  };
 }
 
 // Compact one-line prescription for a whole day ("4x9 @ 70% + 20"), rebuilt
@@ -229,11 +234,17 @@ function renderNextView() {
 function renderSetRow(seg) {
   const checked = seg.status === 'complete';
   const check = `<div class="checkbox ${checked ? 'checked' : ''}" data-action="toggle-check" data-id="${seg.id}" role="checkbox" aria-checked="${checked}" aria-label="Mark set complete">✓</div>`;
+  const target = targetParts(seg);
+  const targetCell = `
+    <div class="set-target">
+      ${escapeHtml(target.scheme)}
+      ${target.weight ? `<span class="set-target-weight">${escapeHtml(target.weight)}</span>` : ''}
+    </div>`;
 
   if (seg.special === 'rest') {
     return `
       <div class="set-row rest ${checked ? 'complete' : ''}">
-        <div class="set-target">${escapeHtml(targetLabel(seg))}</div>
+        ${targetCell}
         ${check}
       </div>
     `;
@@ -244,7 +255,7 @@ function renderSetRow(seg) {
 
   return `
     <div class="set-row ${checked ? 'complete' : ''}">
-      <div class="set-target">${escapeHtml(targetLabel(seg))}</div>
+      ${targetCell}
       <input class="cell" type="number" inputmode="decimal" step="0.5" aria-label="Weight"
              data-field="actual_weight" data-id="${seg.id}" value="${defaultWeight ?? ''}" />
       <input class="cell" type="number" inputmode="numeric" step="1" aria-label="Reps"
