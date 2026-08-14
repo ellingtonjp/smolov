@@ -3,7 +3,7 @@
 const path = require('path');
 const express = require('express');
 const db = require('./db');
-const { getSettings, setSettings, seedIfEmpty, regeneratePlanned } = require('./program');
+const { getSettings, updateSettings, seedIfEmpty, UNITS } = require('./program');
 
 seedIfEmpty();
 
@@ -73,8 +73,13 @@ app.patch('/api/settings', (req, res) => {
   SETTINGS_FIELDS.forEach((f) => {
     if (Object.prototype.hasOwnProperty.call(req.body, f)) updates[f] = req.body[f];
   });
-  setSettings(updates);
-  regeneratePlanned();
+  // Guard the unit before it reaches the converter — an unrecognised value
+  // would otherwise be stored and treated as "not lb", silently converting
+  // every weight in the database the wrong way.
+  if (updates.units != null && !UNITS.includes(updates.units)) {
+    return res.status(400).json({ error: `units must be one of: ${UNITS.join(', ')}` });
+  }
+  updateSettings(updates);
   res.json(getState());
 });
 

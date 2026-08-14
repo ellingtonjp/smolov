@@ -17,16 +17,31 @@ try {
 }
 
 // better-sqlite3-style helper: run fn() inside a transaction.
+//
+// Nestable, because some operations are built by composing smaller wrapped
+// ones — a unit change is a settings write plus a weight conversion plus a
+// recalc, and it must commit or fail as a whole. A plain BEGIN inside a BEGIN
+// is an error in SQLite, so inner levels use savepoints and only the outermost
+// level actually commits.
+let txDepth = 0;
 db.transaction = function transaction(fn) {
   return (...args) => {
-    db.exec('BEGIN');
+    const savepoint = `sp_${txDepth}`;
+    const outermost = txDepth === 0;
+    db.exec(outermost ? 'BEGIN' : `SAVEPOINT ${savepoint}`);
+    txDepth += 1;
     try {
       const result = fn(...args);
-      db.exec('COMMIT');
+      db.exec(outermost ? 'COMMIT' : `RELEASE ${savepoint}`);
       return result;
     } catch (err) {
-      db.exec('ROLLBACK');
+      // ROLLBACK TO leaves the savepoint itself in place, so release it too —
+      // otherwise a retry at the same depth would reuse a stale name.
+      if (outermost) db.exec('ROLLBACK');
+      else db.exec(`ROLLBACK TO ${savepoint}; RELEASE ${savepoint}`);
       throw err;
+    } finally {
+      txDepth -= 1;
     }
   };
 };

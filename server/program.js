@@ -51,6 +51,71 @@ function setSettings(partial) {
   return getSettings();
 }
 
+const UNITS = ['lb', 'kg'];
+const KG_PER_LB = 0.45359237;
+
+// A rounding increment describes the plates on the bar, not a quantity to
+// convert: 5 lb becomes 2.27 kg, which no rack can actually make. Switching
+// units therefore adopts the conventional increment for the new unit.
+const DEFAULT_ROUNDING = { lb: '5', kg: '2.5' };
+
+// The lifter's own inputs. Their stored values move with the unit; `rounding`
+// is handled separately above, and `units` is the switch itself.
+const CONVERTED_SETTINGS = ['starting_1rm', 'new_1rm', 'week4_add', 'week5_add'];
+
+function unitFactor(from, to) {
+  if (from === to) return 1;
+  return from === 'lb' ? KG_PER_LB : 1 / KG_PER_LB;
+}
+
+// Re-express the settings in the new unit. Note the merge: a PATCH may carry
+// only some fields, and the ones it omits are sitting in the database still
+// denominated in the old unit, so they need converting just as much as the
+// submitted ones. Everything in `merged` is in `from` units at this point.
+function convertedSettings(updates, from, to) {
+  const merged = { ...getSettings(), ...updates };
+  const factor = unitFactor(from, to);
+  CONVERTED_SETTINGS.forEach((f) => {
+    const n = Number(merged[f]);
+    // Round the lifter's inputs to a half-unit so the settings form stays
+    // editable — 285 lb reads as 129.5 kg, not 129.2738.
+    if (Number.isFinite(n)) merged[f] = String(Math.round(n * factor * 2) / 2);
+  });
+  merged.rounding = DEFAULT_ROUNDING[to];
+  merged.units = to;
+  return merged;
+}
+
+// Logged history is converted at full precision — a record of what was
+// actually lifted should never be rounded. NULL * factor is NULL in SQLite,
+// so unlogged rows are left alone for free.
+function convertStoredWeights(from, to) {
+  const factor = unitFactor(from, to);
+  db.prepare(`
+    UPDATE segments SET
+      target_weight = ROUND(target_weight * ?, 4),
+      actual_weight = ROUND(actual_weight * ?, 4),
+      one_rm_basis  = ROUND(one_rm_basis  * ?, 4),
+      base_add      = ROUND(base_add      * ?, 4)
+  `).run(factor, factor, factor, factor);
+}
+
+// The one entry point for a settings write. A unit change isn't a relabel: it
+// has to re-express every stored weight, so settings, conversion and recalc
+// all commit together or not at all — a half-applied switch would leave the
+// database silently holding two different units at once.
+const updateSettings = db.transaction((updates) => {
+  const from = getSettings().units || 'lb';
+  const to = updates.units || from;
+  if (to === from) {
+    setSettings(updates);
+  } else {
+    setSettings(convertedSettings(updates, from, to));
+    convertStoredWeights(from, to);
+  }
+  regeneratePlanned();
+});
+
 function seedIfEmpty() {
   const count = db.prepare('SELECT COUNT(*) AS n FROM segments').get().n;
   if (count > 0) return;
@@ -108,4 +173,4 @@ function regeneratePlanned() {
   tx(computed);
 }
 
-module.exports = { getSettings, setSettings, seedIfEmpty, regeneratePlanned, roundToIncrement };
+module.exports = { getSettings, setSettings, updateSettings, seedIfEmpty, regeneratePlanned, roundToIncrement, UNITS };

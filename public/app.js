@@ -152,11 +152,11 @@ function targetParts(seg) {
 
   // Weeks 4/5 add a flat increase on top of the percentage; show it, since the
   // target weight is computed as 1RM * pct + add.
-  const add = seg.base_add ? ` + ${seg.base_add}` : '';
+  const add = seg.base_add ? ` + ${fmtWeight(seg.base_add)}` : '';
   const reps = seg.reps == null ? '' : `${seg.reps} `; // speed work — sets/reps are the lifter's call
   return {
     scheme: `${reps}@ ${pctLabel(seg)}${add}`,
-    weight: seg.target_weight != null ? `${seg.target_weight}${STATE.settings.units || 'lb'}` : '',
+    weight: seg.target_weight != null ? `${fmtWeight(seg.target_weight)}${STATE.settings.units || 'lb'}` : '',
   };
 }
 
@@ -172,7 +172,7 @@ function daySummary(day) {
   });
   if (blocks.length === 0) return '';
   return blocks.map((s) => {
-    const add = s.base_add ? ` + ${s.base_add}` : '';
+    const add = s.base_add ? ` + ${fmtWeight(s.base_add)}` : '';
     const scheme = s.total_sets != null && s.reps != null ? `${s.total_sets}x${s.reps} ` : '';
     return `${scheme}@ ${pctLabel(s)}${add}`;
   }).join(', ');
@@ -182,10 +182,18 @@ function unitsLabel() {
   return (STATE.settings.units || 'lb') === 'kg' ? 'kg' : 'lbs';
 }
 
+// Weights are stored at full precision so that switching units doesn't degrade
+// the record, which leaves logged history on values like 83.9146 kg. Round for
+// the eye only — never on the way into the database.
+function fmtWeight(v) {
+  if (v == null) return '';
+  return String(Math.round(v * 10) / 10);
+}
+
 function weightLabel(v) {
   if (v == null) return '—';
   const units = STATE.settings.units || 'lb';
-  return `${v} ${units}`;
+  return `${fmtWeight(v)} ${units}`;
 }
 
 function groupDays(segments) {
@@ -221,7 +229,7 @@ function dayWeightRange(day) {
   const weights = day.segments.map((s) => s.target_weight).filter((v) => v != null);
   if (weights.length === 0) return null;
   const min = Math.min(...weights), max = Math.max(...weights);
-  return min === max ? weightLabel(min) : `${min}–${weightLabel(max)}`;
+  return min === max ? weightLabel(min) : `${fmtWeight(min)}–${weightLabel(max)}`;
 }
 
 function findDay(days, week, day) {
@@ -349,7 +357,7 @@ function renderSetRow(seg, setNumber) {
       ${num}
       ${targetCell}
       <input class="cell" type="number" inputmode="decimal" step="0.5" aria-label="Weight"
-             data-field="actual_weight" data-id="${seg.id}" value="${defaultWeight ?? ''}" />
+             data-field="actual_weight" data-id="${seg.id}" value="${fmtWeight(defaultWeight)}" />
       <input class="cell" type="number" inputmode="numeric" step="1" aria-label="Reps"
              data-field="reps_done" data-id="${seg.id}" value="${defaultReps ?? ''}" />
       <input class="cell" type="number" inputmode="decimal" step="0.5" min="1" max="10" aria-label="RPE"
@@ -582,6 +590,7 @@ function renderSettingsView() {
             <option value="lb" ${s.units === 'lb' ? 'selected' : ''}>lb</option>
             <option value="kg" ${s.units === 'kg' ? 'selected' : ''}>kg</option>
           </select>
+          <div class="hint">Changing this converts every weight already recorded, and resets the rounding increment to the usual one for that unit.</div>
         </div>
         <div class="field">
           <label>Rounding increment</label>
