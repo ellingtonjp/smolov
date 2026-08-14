@@ -138,11 +138,14 @@ body {
   gap: 0.35rem;
 }
 
+/* The reps and RPE cells only ever hold two characters, so they were wider than
+   their content needed while the target column — which carries the longest
+   string in the row ("10 @ 85% + 30") — was the one being squeezed. */
 .set-head,
 .set-row {
   display: grid;
-  grid-template-columns: 1.1rem minmax(0, 1fr) 3.4rem 2.8rem 2.8rem 28px;
-  gap: 0.3rem;
+  grid-template-columns: 1rem minmax(0, 1fr) 3.2rem 2.4rem 2.4rem 28px;
+  gap: 0.2rem;
   align-items: center;
 }
 
@@ -163,9 +166,22 @@ body {
   padding: 0.35rem 0.4rem;
 }
 
+/* Small Androids sit at 360px, narrow enough that the longest schemes
+   ("10 @ 85% + 30") would wrap onto a third line. Buy the space back from the
+   fixed columns first and only then trim the target text, since that's the
+   part being read mid-set. */
+@media (max-width: 374px) {
+  .set-head,
+  .set-row {
+    grid-template-columns: 1rem minmax(0, 1fr) 3rem 2.2rem 2.2rem 26px;
+  }
+  .set-row.rest { grid-template-columns: 1rem minmax(0, 1fr) 26px; }
+  .set-target { font-size: 0.8rem; }
+}
+
 .set-row.complete { border-color: rgba(62,207,142,0.4); }
 
-.set-row.rest { grid-template-columns: 1.1rem minmax(0, 1fr) 28px; }
+.set-row.rest { grid-template-columns: 1rem minmax(0, 1fr) 28px; }
 
 .set-num {
   font-size: 0.72rem;
@@ -174,17 +190,20 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
+/* No ellipsis here: the scheme and its weight are the two things the lifter
+   reads off the row, so hiding either one defeats the column. The weight sits
+   on its own line beneath the scheme — side by side they need ~134px on a
+   week 4/5 row and the column is ~100px, which is what used to truncate. */
 .set-target {
   font-weight: 600;
   font-size: 0.84rem;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
   padding-left: 0.15rem;
+  min-width: 0;
+  line-height: 1.25;
 }
 
 .set-target-weight {
-  margin-left: 0.3rem;
+  display: block;
   font-size: 0.72rem;
   font-style: italic;
   font-weight: 500;
