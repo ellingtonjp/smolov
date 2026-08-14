@@ -3,7 +3,7 @@
 const path = require('path');
 const express = require('express');
 const db = require('./db');
-const { getSettings, updateSettings, seedIfEmpty, UNITS } = require('./program');
+const { getSettings, updateSettings, validateSettings, seedIfEmpty } = require('./program');
 
 seedIfEmpty();
 
@@ -73,12 +73,13 @@ app.patch('/api/settings', (req, res) => {
   SETTINGS_FIELDS.forEach((f) => {
     if (Object.prototype.hasOwnProperty.call(req.body, f)) updates[f] = req.body[f];
   });
-  // Guard the unit before it reaches the converter — an unrecognised value
-  // would otherwise be stored and treated as "not lb", silently converting
-  // every weight in the database the wrong way.
-  if (updates.units != null && !UNITS.includes(updates.units)) {
-    return res.status(400).json({ error: `units must be one of: ${UNITS.join(', ')}` });
-  }
+  // Validate before anything is written. These values drive the target weight
+  // on every unlogged row, so a bad one isn't a bad field — it's a wrecked
+  // program. An unrecognised unit is caught here too, before it reaches the
+  // converter and re-expresses the whole database the wrong way.
+  const invalid = validateSettings(updates);
+  if (invalid) return res.status(400).json({ error: invalid });
+
   updateSettings(updates);
   res.json(getState());
 });

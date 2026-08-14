@@ -578,11 +578,11 @@ function renderSettingsView() {
       <div class="settings-form">
         <div class="field">
           <label>Starting squat 1RM (used weeks 1–5)</label>
-          <input type="number" step="0.5" id="set-starting_1rm" value="${s.starting_1rm}" />
+          <input type="number" step="0.5" min="1" max="2000" id="set-starting_1rm" value="${s.starting_1rm}" />
         </div>
         <div class="field">
           <label>New 1RM after Week 6 (used weeks 7–13)</label>
-          <input type="number" step="0.5" id="set-new_1rm" value="${s.new_1rm}" />
+          <input type="number" step="0.5" min="1" max="2000" id="set-new_1rm" value="${s.new_1rm}" />
         </div>
         <div class="field">
           <label>Units</label>
@@ -594,15 +594,15 @@ function renderSettingsView() {
         </div>
         <div class="field">
           <label>Rounding increment</label>
-          <input type="number" step="0.5" id="set-rounding" value="${s.rounding}" />
+          <input type="number" step="0.5" min="0.5" max="50" id="set-rounding" value="${s.rounding}" />
         </div>
         <div class="field">
           <label>Week 4 increase</label>
-          <input type="number" step="0.5" id="set-week4_add" value="${s.week4_add}" />
+          <input type="number" step="0.5" min="0" max="500" id="set-week4_add" value="${s.week4_add}" />
         </div>
         <div class="field">
           <label>Week 5 increase</label>
-          <input type="number" step="0.5" id="set-week5_add" value="${s.week5_add}" />
+          <input type="number" step="0.5" min="0" max="500" id="set-week5_add" value="${s.week5_add}" />
         </div>
         <button class="btn" data-action="save-settings">Save &amp; recalculate</button>
       </div>

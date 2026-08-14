@@ -63,6 +63,37 @@ const DEFAULT_ROUNDING = { lb: '5', kg: '2.5' };
 // is handled separately above, and `units` is the switch itself.
 const CONVERTED_SETTINGS = ['starting_1rm', 'new_1rm', 'week4_add', 'week5_add'];
 
+// Bounds are deliberately generous — the job here is to reject values that
+// break the program maths, not to police what someone can lift.
+const NUMERIC_SETTINGS = {
+  starting_1rm: { min: 1, max: 2000, label: 'Starting 1RM' },
+  new_1rm: { min: 1, max: 2000, label: 'New 1RM' },
+  rounding: { min: 0.5, max: 50, label: 'Rounding increment' },
+  week4_add: { min: 0, max: 500, label: 'Week 4 increase' },
+  week5_add: { min: 0, max: 500, label: 'Week 5 increase' },
+};
+
+// Returns an error message, or null when the update is safe to apply.
+//
+// Nothing used to be checked here, and the failure was quiet and destructive:
+// Number('') is 0 and Number('abc') is NaN, so saving the form with a cleared
+// rounding box made roundToIncrement return null for every row and blanked the
+// target weight on all 196 unlogged sets at once. Nothing in the UI said why,
+// and the only way back was to guess that rounding was the culprit.
+function validateSettings(updates) {
+  if (updates.units != null && !UNITS.includes(updates.units)) {
+    return `Units must be one of: ${UNITS.join(', ')}`;
+  }
+  for (const [field, rule] of Object.entries(NUMERIC_SETTINGS)) {
+    if (updates[field] == null) continue;
+    const raw = String(updates[field]).trim();
+    const n = Number(raw);
+    if (raw === '' || !Number.isFinite(n)) return `${rule.label} must be a number`;
+    if (n < rule.min || n > rule.max) return `${rule.label} must be between ${rule.min} and ${rule.max}`;
+  }
+  return null;
+}
+
 function unitFactor(from, to) {
   if (from === to) return 1;
   return from === 'lb' ? KG_PER_LB : 1 / KG_PER_LB;
@@ -173,4 +204,4 @@ function regeneratePlanned() {
   tx(computed);
 }
 
-module.exports = { getSettings, setSettings, updateSettings, seedIfEmpty, regeneratePlanned, roundToIncrement, UNITS };
+module.exports = { getSettings, setSettings, updateSettings, validateSettings, seedIfEmpty, regeneratePlanned, roundToIncrement, UNITS };
