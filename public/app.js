@@ -132,6 +132,14 @@ function dayStatus(day) {
   return 'planned';
 }
 
+// Number the working sets 1..n down the day. set_number restarts inside each
+// segment, so the running count is what the lifter actually ticks off; rest and
+// test days aren't sets and get no number.
+function daySetNumbers(day) {
+  let n = 0;
+  return day.segments.map((seg) => ({ seg, setNumber: seg.special ? null : ++n }));
+}
+
 function dayWeightRange(day) {
   const weights = day.segments.map((s) => s.target_weight).filter((v) => v != null);
   if (weights.length === 0) return null;
@@ -211,13 +219,14 @@ function renderNextView() {
       <div class="set-table">
         ${isRestDay ? '' : `
           <div class="set-head">
+            <span>#</span>
             <span>Target</span>
             <span>${unitsLabel()}</span>
             <span>reps</span>
             <span>rpe</span>
             <span></span>
           </div>`}
-        ${day.segments.map((seg) => renderSetRow(seg)).join('')}
+        ${daySetNumbers(day).map(({ seg, setNumber }) => renderSetRow(seg, setNumber)).join('')}
       </div>
 
       <div class="field field-full" style="margin-top:0.75rem;">
@@ -228,12 +237,13 @@ function renderNextView() {
   `;
 }
 
-// One set per line: Target (read-only) | weight | reps | rpe | done.
+// One set per line: # | Target (read-only) | weight | reps | rpe | done.
 // Weight and reps are pre-filled with the prescription until the lifter
 // overrides them; RPE is intentionally never pre-filled.
-function renderSetRow(seg) {
+function renderSetRow(seg, setNumber) {
   const checked = seg.status === 'complete';
   const check = `<div class="checkbox ${checked ? 'checked' : ''}" data-action="toggle-check" data-id="${seg.id}" role="checkbox" aria-checked="${checked}" aria-label="Mark set complete">✓</div>`;
+  const num = `<div class="set-num">${setNumber ?? ''}</div>`;
   const target = targetParts(seg);
   const targetCell = `
     <div class="set-target">
@@ -244,6 +254,7 @@ function renderSetRow(seg) {
   if (seg.special === 'rest') {
     return `
       <div class="set-row rest ${checked ? 'complete' : ''}">
+        ${num}
         ${targetCell}
         ${check}
       </div>
@@ -255,6 +266,7 @@ function renderSetRow(seg) {
 
   return `
     <div class="set-row ${checked ? 'complete' : ''}">
+      ${num}
       ${targetCell}
       <input class="cell" type="number" inputmode="decimal" step="0.5" aria-label="Weight"
              data-field="actual_weight" data-id="${seg.id}" value="${defaultWeight ?? ''}" />
