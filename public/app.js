@@ -129,8 +129,13 @@ TOAST.addEventListener('click', (e) => {
 
 // ---------- helpers ----------
 
+// The lifter's local calendar date, not a UTC one. toISOString() rolls over at
+// 5pm Pacific, so every evening session used to get stamped with tomorrow's
+// date — and the charts sort on this field.
 function todayStr() {
-  return new Date().toISOString().slice(0, 10);
+  const d = new Date();
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
 function pctLabel(seg) {
