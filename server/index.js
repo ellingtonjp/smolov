@@ -99,9 +99,27 @@ app.get('/api/export.csv', (req, res) => {
   res.send(lines.join('\n'));
 });
 
+// Unknown API routes have to fail as JSON. The SPA catch-all below would
+// otherwise answer them with index.html and a 200, so a typo'd endpoint would
+// look like a successful write to the client.
+app.use('/api', (req, res) => {
+  res.status(404).json({ error: 'unknown endpoint' });
+});
+
 app.use(express.static(path.join(__dirname, '..', 'public')));
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, '..', 'public', 'index.html'));
+});
+
+// node:sqlite throws synchronously, so express catches handler errors — but its
+// default handler replies with an HTML stack trace, which the client can't read
+// and which leaks internals. Always answer with the JSON shape the client
+// expects. The unused `next` is required — express identifies error middleware
+// by its arity.
+app.use((err, req, res, next) => {
+  const status = err.status && err.status < 500 ? err.status : 500;
+  console.error(`${req.method} ${req.originalUrl} failed:`, err);
+  res.status(status).json({ error: status === 500 ? 'server error' : 'bad request' });
 });
 
 const PORT = process.env.PORT || 3000;

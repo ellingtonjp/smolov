@@ -9,51 +9,123 @@ let CURRENT_DAY_KEY = null; // "week-day"
 
 // ---------- data fetch / mutate ----------
 
-async function loadState() {
-  const res = await fetch('/api/state');
-  STATE = await res.json();
+// A phone in a gym loses its connection all the time, so a failed write is the
+// normal case here, not an edge case. Every request goes through this helper so
+// that a failure is always loud: it never resolves with a half-answer, and an
+// error body never reaches STATE.
+const REQUEST_TIMEOUT_MS = 10000;
+
+async function request(url, options = {}) {
+  let res;
+  try {
+    res = await fetch(url, { ...options, signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
+  } catch (err) {
+    // A hung request is a silent failure too — time it out and say so.
+    throw new Error(err.name === 'TimeoutError' ? 'server not responding' : 'no connection');
+  }
+  if (!res.ok) {
+    let detail = '';
+    try { detail = (await res.json()).error || ''; } catch (err) { /* non-JSON error page */ }
+    throw new Error(detail || `server error (${res.status})`);
+  }
+  return res.json();
 }
 
+async function loadState() {
+  STATE = await request('/api/state');
+}
+
+// Applied optimistically so check-off feels instant, then rolled back if the
+// write doesn't land. A checkbox is a claim that the set is *saved*, so showing
+// it checked after a failed write is the one thing we must never do.
 async function patchSegment(id, fields) {
-  const res = await fetch(`/api/segments/${id}`, {
-    method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(fields),
-  });
-  const updated = await res.json();
   const idx = STATE.segments.findIndex((s) => s.id === id);
-  if (idx >= 0) STATE.segments[idx] = updated;
-  showToast('Saved');
+  const previous = idx >= 0 ? STATE.segments[idx] : null;
+  if (previous) STATE.segments[idx] = { ...previous, ...fields };
   render();
+
+  try {
+    const updated = await request(`/api/segments/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(fields),
+    });
+    if (idx >= 0) STATE.segments[idx] = updated;
+    showToast('Saved');
+    render();
+  } catch (err) {
+    if (previous) STATE.segments[idx] = previous;
+    render();
+    showError(`Set not saved — ${err.message}`, () => patchSegment(id, fields));
+  }
 }
 
 async function putDayNote(week, day, note) {
-  await fetch(`/api/day-notes/${week}/${day}`, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ note }),
-  });
-  STATE.dayNotes[`${week}-${day}`] = note;
-  showToast('Note saved');
+  const key = `${week}-${day}`;
+  STATE.dayNotes[key] = note;
+  try {
+    await request(`/api/day-notes/${week}/${day}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ note }),
+    });
+    showToast('Note saved');
+  } catch (err) {
+    // Unlike a set, the note is text the lifter just typed — keep it in memory
+    // so switching views doesn't discard it, and let them retry.
+    showError(`Note not saved — ${err.message}`, () => putDayNote(week, day, note));
+  }
 }
 
 async function patchSettings(fields) {
-  const res = await fetch('/api/settings', {
-    method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(fields),
-  });
-  STATE = await res.json();
-  showToast('Settings saved — upcoming targets recalculated');
-  render();
+  try {
+    STATE = await request('/api/settings', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(fields),
+    });
+    showToast('Settings saved — upcoming targets recalculated');
+    render();
+  } catch (err) {
+    showError(`Settings not saved — ${err.message}`, () => patchSettings(fields));
+  }
 }
 
+let TOAST_RETRY = null;
+
 function showToast(msg) {
+  // A visible error outranks a routine "Saved". Overwriting it would strand the
+  // failed write — the lifter would never get back to the Retry button, which is
+  // exactly the silent loss this is all meant to prevent.
+  if (!TOAST.hidden && TOAST.classList.contains('error')) return;
+  clearTimeout(showToast._t);
+  TOAST_RETRY = null;
+  TOAST.className = 'toast';
   TOAST.textContent = msg;
   TOAST.hidden = false;
-  clearTimeout(showToast._t);
   showToast._t = setTimeout(() => { TOAST.hidden = true; }, 1600);
 }
+
+// Errors never auto-dismiss. If a set didn't save, the lifter needs to still see
+// that when they put the bar down, not 1.6 seconds later.
+function showError(msg, retry) {
+  clearTimeout(showToast._t);
+  TOAST_RETRY = retry || null;
+  TOAST.className = 'toast error';
+  TOAST.innerHTML = `<span>${escapeHtml(msg)}</span>`
+    + (retry ? '<button class="toast-btn" data-toast-action="retry">Retry</button>' : '')
+    + '<button class="toast-btn" data-toast-action="dismiss" aria-label="Dismiss">✕</button>';
+  TOAST.hidden = false;
+}
+
+TOAST.addEventListener('click', (e) => {
+  const btn = e.target.closest('[data-toast-action]');
+  if (!btn) return;
+  const retry = TOAST_RETRY;
+  TOAST_RETRY = null;
+  TOAST.hidden = true;
+  if (btn.dataset.toastAction === 'retry' && retry) retry();
+});
 
 // ---------- helpers ----------
 
@@ -158,6 +230,9 @@ function nextIncompleteDay(days) {
 // ---------- render: shell ----------
 
 function render() {
+  // The initial load can fail, leaving us with no state — the tabs are still
+  // live at that point, so don't let one render a view against null.
+  if (!STATE) return;
   document.querySelectorAll('.tab-btn').forEach((b) => {
     b.classList.toggle('active', b.dataset.view === VIEW);
   });
@@ -540,6 +615,11 @@ document.querySelectorAll('.tab-btn').forEach((btn) => {
 });
 
 APP.addEventListener('click', (e) => {
+  if (e.target.closest('[data-action="reload"]')) {
+    window.location.reload();
+    return;
+  }
+
   const checkEl = e.target.closest('[data-action="toggle-check"]');
   if (checkEl) {
     const id = Number(checkEl.dataset.id);
@@ -639,8 +719,22 @@ function escapeAttr(str) {
 
 // ---------- boot ----------
 
+// Without this the app just sits on "Loading…" forever with no explanation.
+function showLoadError(message) {
+  APP.innerHTML = `
+    <div class="empty-state">
+      <div>Couldn't load your program — ${escapeHtml(message)}.</div>
+      <button class="btn" data-action="reload" style="margin-top:0.75rem;">Try again</button>
+    </div>`;
+}
+
 (async function init() {
   APP.innerHTML = '<div class="empty-state">Loading…</div>';
-  await loadState();
+  try {
+    await loadState();
+  } catch (err) {
+    showLoadError(err.message);
+    return;
+  }
   render();
 })();

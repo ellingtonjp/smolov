@@ -342,8 +342,14 @@ svg.chart { display: block; width: 100%; height: 220px; }
 .toast {
   position: fixed;
   bottom: 1rem;
-  left: 50%;
-  transform: translateX(-50%);
+  /* Inset from both edges rather than left:50% + translateX: centering off the
+     left edge caps the shrink-to-fit width at half the viewport, which wraps a
+     one-line error into a narrow column on a phone. */
+  left: 1rem;
+  right: 1rem;
+  width: fit-content;
+  max-width: 100%;
+  margin-inline: auto;
   background: var(--surface-2);
   border: 1px solid var(--border);
   color: var(--text);
@@ -351,7 +357,33 @@ svg.chart { display: block; width: 100%; height: 220px; }
   border-radius: 999px;
   font-size: 0.85rem;
   z-index: 100;
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
 }
+/* display:flex above would otherwise override the hidden attribute. */
+.toast[hidden] { display: none; }
+
+.toast.error {
+  background: #3a1e24;
+  border-color: var(--red);
+  color: #ffd7dc;
+  border-radius: var(--radius);
+  padding: 0.6rem 0.75rem;
+}
+
+.toast-btn {
+  flex-shrink: 0;
+  background: transparent;
+  border: 1px solid currentColor;
+  color: inherit;
+  font: inherit;
+  font-size: 0.8rem;
+  padding: 0.25rem 0.6rem;
+  border-radius: 999px;
+  cursor: pointer;
+}
+.toast-btn:active { background: rgba(255,255,255,0.12); }
 
 .settings-form { display: grid; gap: 0.7rem; }
 .link-row a { color: var(--accent); text-decoration: none; font-size: 0.9rem; }
