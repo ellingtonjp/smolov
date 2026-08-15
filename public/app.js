@@ -526,8 +526,12 @@ function renderProgressView() {
   `;
 }
 
+// The viewBox is sized so that one user unit lands on roughly one CSS pixel at
+// phone width, which is what the font sizes and stroke widths below are picked
+// against. Scaling stays uniform (see the missing preserveAspectRatio), so the
+// chart just gets proportionally bigger on a wider screen.
 function buildLineChart(series, opts = {}) {
-  const width = opts.width || 640;
+  const width = opts.width || 320;
   const height = opts.height || 200;
   const padL = 42, padR = 10, padT = 10, padB = 10;
   const allPoints = series.flatMap((s) => s.points);
@@ -544,7 +548,10 @@ function buildLineChart(series, opts = {}) {
   const xScale = (x) => padL + ((x - minX) / (maxX - minX)) * (width - padL - padR);
   const yScale = (y) => height - padB - ((y - minY) / (maxY - minY)) * (height - padT - padB);
 
-  let svg = `<svg class="chart" viewBox="0 0 ${width} ${height}" preserveAspectRatio="none">`;
+  // No preserveAspectRatio override: "none" stretched the viewBox to whatever
+  // box CSS gave it, squashing the axis labels horizontally and rendering every
+  // data point as an ellipse.
+  let svg = `<svg class="chart" viewBox="0 0 ${width} ${height}">`;
   const gridN = 4;
   for (let i = 0; i <= gridN; i++) {
     const y = padT + (i * (height - padT - padB)) / gridN;
