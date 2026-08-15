@@ -42,7 +42,7 @@ async function patchSegment(id, fields) {
   const idx = STATE.segments.findIndex((s) => s.id === id);
   const previous = idx >= 0 ? STATE.segments[idx] : null;
   if (previous) STATE.segments[idx] = { ...previous, ...fields };
-  render();
+  applySegmentUpdate(previous && STATE.segments[idx]);
 
   try {
     const updated = await request(`/api/segments/${id}`, {
@@ -52,10 +52,10 @@ async function patchSegment(id, fields) {
     });
     if (idx >= 0) STATE.segments[idx] = updated;
     showToast('Saved');
-    render();
+    applySegmentUpdate(idx >= 0 ? updated : null);
   } catch (err) {
     if (previous) STATE.segments[idx] = previous;
-    render();
+    applySegmentUpdate(previous);
     showError(`Set not saved — ${err.message}`, () => patchSegment(id, fields));
   }
 }
@@ -325,23 +325,37 @@ function renderNextView() {
   `;
 }
 
+function targetCellInner(seg) {
+  const target = targetParts(seg);
+  return `${escapeHtml(target.scheme)}`
+    + (target.weight ? `<span class="set-target-weight">${escapeHtml(target.weight)}</span>` : '');
+}
+
+// What an input should be showing for a given segment. Weight and reps fall
+// back to the prescription until the lifter overrides them; RPE is
+// intentionally never pre-filled. Both the initial render and the in-place
+// refresh read through here, so the two can't drift apart.
+function setFieldValue(seg, field) {
+  if (field === 'actual_weight') {
+    return fmtWeight(seg.actual_weight ?? (seg.special === 'test' ? null : seg.target_weight));
+  }
+  if (field === 'reps_done') {
+    const v = seg.reps_done ?? (seg.special === 'test' ? null : seg.reps);
+    return v == null ? '' : String(v);
+  }
+  return seg.rpe == null ? '' : String(seg.rpe);
+}
+
 // One set per line: # | Target (read-only) | weight | reps | rpe | done.
-// Weight and reps are pre-filled with the prescription until the lifter
-// overrides them; RPE is intentionally never pre-filled.
 function renderSetRow(seg, setNumber) {
   const checked = seg.status === 'complete';
   const check = `<div class="checkbox ${checked ? 'checked' : ''}" data-action="toggle-check" data-id="${seg.id}" role="checkbox" aria-checked="${checked}" aria-label="Mark set complete">✓</div>`;
   const num = `<div class="set-num">${setNumber ?? ''}</div>`;
-  const target = targetParts(seg);
-  const targetCell = `
-    <div class="set-target">
-      ${escapeHtml(target.scheme)}
-      ${target.weight ? `<span class="set-target-weight">${escapeHtml(target.weight)}</span>` : ''}
-    </div>`;
+  const targetCell = `<div class="set-target">${targetCellInner(seg)}</div>`;
 
   if (seg.special === 'rest') {
     return `
-      <div class="set-row rest ${checked ? 'complete' : ''}">
+      <div class="set-row rest ${checked ? 'complete' : ''}" data-row-id="${seg.id}">
         ${num}
         ${targetCell}
         ${check}
@@ -349,22 +363,77 @@ function renderSetRow(seg, setNumber) {
     `;
   }
 
-  const defaultWeight = seg.actual_weight ?? (seg.special === 'test' ? null : seg.target_weight);
-  const defaultReps = seg.reps_done ?? (seg.special === 'test' ? null : seg.reps);
-
   return `
-    <div class="set-row ${checked ? 'complete' : ''}">
+    <div class="set-row ${checked ? 'complete' : ''}" data-row-id="${seg.id}">
       ${num}
       ${targetCell}
       <input class="cell" type="number" inputmode="decimal" step="0.5" aria-label="Weight"
-             data-field="actual_weight" data-id="${seg.id}" value="${fmtWeight(defaultWeight)}" />
+             data-field="actual_weight" data-id="${seg.id}" value="${setFieldValue(seg, 'actual_weight')}" />
       <input class="cell" type="number" inputmode="numeric" step="1" aria-label="Reps"
-             data-field="reps_done" data-id="${seg.id}" value="${defaultReps ?? ''}" />
+             data-field="reps_done" data-id="${seg.id}" value="${setFieldValue(seg, 'reps_done')}" />
       <input class="cell" type="number" inputmode="decimal" step="0.5" min="1" max="10" aria-label="RPE"
-             data-field="rpe" data-id="${seg.id}" value="${seg.rpe ?? ''}" />
+             data-field="rpe" data-id="${seg.id}" value="${setFieldValue(seg, 'rpe')}" />
       ${check}
     </div>
   `;
+}
+
+// Update a single set row in place.
+//
+// render() rebuilds the whole view with innerHTML, which destroys and recreates
+// every input. Saving a set fires on change — i.e. as focus leaves for the next
+// field — so the element the lifter had just moved into was torn out from under
+// them mid-edit, taking the caret and, on a phone, the keyboard with it. Every
+// write did this, and since writes became optimistic it happened twice.
+//
+// Returns false if the row isn't on screen, in which case the caller should
+// fall back to a full render.
+function refreshSetRow(seg) {
+  const row = APP.querySelector(`.set-row[data-row-id="${seg.id}"]`);
+  if (!row) return false;
+
+  const complete = seg.status === 'complete';
+  row.classList.toggle('complete', complete);
+
+  const box = row.querySelector('[data-action="toggle-check"]');
+  if (box) {
+    box.classList.toggle('checked', complete);
+    box.setAttribute('aria-checked', String(complete));
+  }
+
+  const target = row.querySelector('.set-target');
+  if (target) target.innerHTML = targetCellInner(seg);
+
+  row.querySelectorAll('[data-field]').forEach((input) => {
+    // Never write to the field currently being typed in — that's the whole
+    // point of updating in place rather than re-rendering.
+    if (input === document.activeElement) return;
+    const next = setFieldValue(seg, input.dataset.field);
+    if (input.value !== next) input.value = next;
+  });
+  return true;
+}
+
+// The day's status badge is the only thing outside the row itself that a set
+// write can change, so it gets refreshed alongside it.
+function refreshDayBadge() {
+  const badge = APP.querySelector('.day-header .badge');
+  if (!badge || !CURRENT_DAY_KEY) return;
+  const [w, d] = CURRENT_DAY_KEY.split('-').map(Number);
+  const day = findDay(groupDays(STATE.segments), w, d);
+  if (!day) return;
+  const status = dayStatus(day);
+  badge.className = `badge ${status}`;
+  badge.textContent = status;
+}
+
+// Reflect a changed segment with the smallest update that's correct.
+function applySegmentUpdate(seg) {
+  if (VIEW !== 'next' || !seg || !refreshSetRow(seg)) {
+    render();
+    return;
+  }
+  refreshDayBadge();
 }
 
 // ---------- render: Program Overview ----------
