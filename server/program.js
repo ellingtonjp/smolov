@@ -10,6 +10,10 @@ const DEFAULT_SETTINGS = {
   rounding: '5',
   week4_add: '20',
   week5_add: '30',
+  bar_weight: '45',
+  // Plates available on ONE side of the bar, repeats included, so the loader
+  // can't propose a plate the lifter doesn't own a second of.
+  plates: '45,45,45,45,25,25,10,10,5,5,2.5,2.5',
 };
 
 // Sets already logged on the spreadsheet before this app existed (Week 1 /
@@ -54,13 +58,18 @@ function setSettings(partial) {
 const UNITS = ['lb', 'kg'];
 const KG_PER_LB = 0.45359237;
 
-// A rounding increment describes the plates on the bar, not a quantity to
-// convert: 5 lb becomes 2.27 kg, which no rack can actually make. Switching
-// units therefore adopts the conventional increment for the new unit.
-const DEFAULT_ROUNDING = { lb: '5', kg: '2.5' };
+// Settings that describe the equipment rather than a quantity, so switching
+// units adopts the new unit's conventional kit instead of converting: 5 lb
+// becomes 2.27 kg, which no rack can make, and a 45 lb plate converted to
+// 20.41 kg is not a plate anyone owns.
+const UNIT_DEFAULTS = {
+  lb: { rounding: '5', bar_weight: '45', plates: '45,45,45,45,25,25,10,10,5,5,2.5,2.5' },
+  kg: { rounding: '2.5', bar_weight: '20', plates: '25,25,25,25,20,20,10,10,5,5,2.5,2.5,1.25,1.25' },
+};
 
-// The lifter's own inputs. Their stored values move with the unit; `rounding`
-// is handled separately above, and `units` is the switch itself.
+// The lifter's own inputs — real quantities, so their stored values convert
+// with the unit. Everything in UNIT_DEFAULTS is replaced rather than converted,
+// and `units` is the switch itself.
 const CONVERTED_SETTINGS = ['starting_1rm', 'new_1rm', 'week4_add', 'week5_add'];
 
 // Bounds are deliberately generous — the job here is to reject values that
@@ -71,7 +80,25 @@ const NUMERIC_SETTINGS = {
   rounding: { min: 0.5, max: 50, label: 'Rounding increment' },
   week4_add: { min: 0, max: 500, label: 'Week 4 increase' },
   week5_add: { min: 0, max: 500, label: 'Week 5 increase' },
+  bar_weight: { min: 0, max: 200, label: 'Bar weight' },
 };
+
+const MAX_PLATES_PER_SIDE = 40;
+
+// "45,45,25,10" -> [45, 45, 25, 10], heaviest first. Returns null if the list
+// isn't usable, so the caller can tell "empty" from "malformed".
+function parsePlates(raw) {
+  const text = String(raw == null ? '' : raw).trim();
+  if (text === '') return [];
+  const parts = text.split(',').map((p) => p.trim()).filter((p) => p !== '');
+  const nums = [];
+  for (const p of parts) {
+    const n = Number(p);
+    if (!Number.isFinite(n) || n <= 0) return null;
+    nums.push(n);
+  }
+  return nums.sort((a, b) => b - a);
+}
 
 // Returns an error message, or null when the update is safe to apply.
 //
@@ -90,6 +117,11 @@ function validateSettings(updates) {
     const n = Number(raw);
     if (raw === '' || !Number.isFinite(n)) return `${rule.label} must be a number`;
     if (n < rule.min || n > rule.max) return `${rule.label} must be between ${rule.min} and ${rule.max}`;
+  }
+  if (updates.plates != null) {
+    const parsed = parsePlates(updates.plates);
+    if (parsed === null) return 'Plates must be a comma-separated list of positive numbers';
+    if (parsed.length > MAX_PLATES_PER_SIDE) return `Plates list is limited to ${MAX_PLATES_PER_SIDE} entries`;
   }
   return null;
 }
@@ -112,7 +144,7 @@ function convertedSettings(updates, from, to) {
     // editable — 285 lb reads as 129.5 kg, not 129.2738.
     if (Number.isFinite(n)) merged[f] = String(Math.round(n * factor * 2) / 2);
   });
-  merged.rounding = DEFAULT_ROUNDING[to];
+  Object.assign(merged, UNIT_DEFAULTS[to]);
   merged.units = to;
   return merged;
 }
@@ -204,4 +236,4 @@ function regeneratePlanned() {
   tx(computed);
 }
 
-module.exports = { getSettings, setSettings, updateSettings, validateSettings, seedIfEmpty, regeneratePlanned, roundToIncrement, UNITS };
+module.exports = { getSettings, setSettings, updateSettings, validateSettings, parsePlates, seedIfEmpty, regeneratePlanned, roundToIncrement, UNITS };

@@ -392,6 +392,34 @@ svg.chart { display: block; width: 100%; height: auto; }
 }
 .toast-btn:active { background: rgba(255,255,255,0.12); }
 
+.loading-plan {
+  margin-top: 0.75rem;
+  padding-top: 0.6rem;
+  border-top: 1px solid var(--border);
+}
+.loading-plan-head {
+  font-size: 0.7rem;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  margin-bottom: 0.35rem;
+}
+.load-row {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  padding: 0.2rem 0.15rem;
+  flex-wrap: wrap;
+}
+.load-weight {
+  font-weight: 700;
+  font-size: 0.84rem;
+  min-width: 3.2rem;
+  font-variant-numeric: tabular-nums;
+}
+.load-plates { font-size: 0.84rem; color: var(--text); }
+.load-short { font-size: 0.72rem; color: var(--amber); }
+
 .settings-form { display: grid; gap: 0.7rem; }
 .hint { font-size: 0.75rem; color: var(--text-dim); margin-top: 0.3rem; line-height: 1.4; }
 .link-row a { color: var(--accent); text-decoration: none; font-size: 0.9rem; }

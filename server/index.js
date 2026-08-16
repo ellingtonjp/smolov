@@ -11,7 +11,7 @@ const app = express();
 app.use(express.json());
 
 const SEGMENT_FIELDS = ['status', 'actual_weight', 'reps_done', 'rpe', 'notes', 'date'];
-const SETTINGS_FIELDS = ['starting_1rm', 'new_1rm', 'units', 'rounding', 'week4_add', 'week5_add'];
+const SETTINGS_FIELDS = ['starting_1rm', 'new_1rm', 'units', 'rounding', 'week4_add', 'week5_add', 'bar_weight', 'plates'];
 
 function getState() {
   const settings = getSettings();

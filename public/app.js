@@ -196,6 +196,76 @@ function weightLabel(v) {
   return `${fmtWeight(v)} ${units}`;
 }
 
+// ---------- plate loading ----------
+
+function plateInventory() {
+  const parts = String(STATE.settings.plates || '').split(',').map((p) => p.trim()).filter(Boolean);
+  const nums = parts.map(Number).filter((n) => Number.isFinite(n) && n > 0);
+  return nums.sort((a, b) => b - a);
+}
+
+// What to hang on one end of the bar to reach `weight`.
+//
+// Greedy heaviest-first, which is both how a bar actually gets loaded and, for
+// the doubling denominations on a real rack, the same answer an exhaustive
+// search gives. `remainder` is what's left when the plates can't reach the
+// number exactly — reported rather than hidden, since the lifter needs to know
+// the bar is light before they get under it.
+function platesForWeight(weight, bar, inventory) {
+  if (weight == null || !Number.isFinite(weight)) return null;
+  if (weight < bar) return { under: true, perSide: [], loaded: bar, remainder: 0 };
+
+  let perSideTarget = (weight - bar) / 2;
+  const perSide = [];
+  const pool = inventory.slice();
+  // Float noise: 2.5 + 1.25 style sums drift, so compare with a small epsilon.
+  for (let i = 0; i < pool.length && perSideTarget > 1e-9; i++) {
+    if (pool[i] <= perSideTarget + 1e-9) {
+      perSide.push(pool[i]);
+      perSideTarget -= pool[i];
+    }
+  }
+  const remainder = Math.round(perSideTarget * 2 * 1000) / 1000;
+  return { under: false, perSide, loaded: weight - remainder, remainder };
+}
+
+// Plate sizes need finer precision than lifted weights: fmtWeight rounds to one
+// decimal, which turns the standard 1.25 kg plate into a "1.3" that isn't a
+// thing you can pick up.
+function fmtPlate(v) {
+  return String(Math.round(v * 100) / 100);
+}
+
+// "45,45,25" -> "45x2, 25" — how a lifter counts them out.
+function plateLabel(perSide) {
+  if (perSide.length === 0) return 'bar only';
+  const runs = [];
+  perSide.forEach((p) => {
+    const last = runs[runs.length - 1];
+    if (last && last.plate === p) last.n += 1;
+    else runs.push({ plate: p, n: 1 });
+  });
+  return runs.map((r) => (r.n > 1 ? `${fmtPlate(r.plate)}×${r.n}` : fmtPlate(r.plate))).join(', ');
+}
+
+// The distinct weights a day actually calls for, in the order they're worked
+// through. Reads the effective weight — what the lifter overrode it to, or the
+// target if they haven't — so the list matches the numbers in the rows.
+function dayLoadingPlan(day) {
+  const bar = Number(STATE.settings.bar_weight);
+  if (!Number.isFinite(bar)) return [];
+  const inventory = plateInventory();
+  const seen = new Map();
+  day.segments.forEach((s) => {
+    if (s.special) return;
+    const weight = s.actual_weight ?? s.target_weight;
+    if (weight == null) return;
+    if (seen.has(weight)) return;
+    seen.set(weight, platesForWeight(weight, bar, inventory));
+  });
+  return [...seen.entries()].map(([weight, load]) => ({ weight, load }));
+}
+
 function groupDays(segments) {
   const days = [];
   let cur = null;
@@ -317,12 +387,47 @@ function renderNextView() {
         ${daySetNumbers(day).map(({ seg, setNumber }) => renderSetRow(seg, setNumber)).join('')}
       </div>
 
+      ${renderLoadingPlan(day)}
+
       <div class="field field-full" style="margin-top:0.75rem;">
         <label>Day notes (how the session felt, cues, adjustments)</label>
         <textarea data-action="day-note" data-week="${day.week}" data-day="${day.day}">${escapeHtml(dayNote)}</textarea>
       </div>
     </div>
   `;
+}
+
+// What to load for each distinct weight in the day. Sits under the set table
+// rather than in the rows: a Base Cycle day is ten sets at one weight, so this
+// is one line, and the rows have no width to spare for it anyway.
+function renderLoadingPlan(day) {
+  const plan = dayLoadingPlan(day);
+  if (plan.length === 0) return '';
+  const units = STATE.settings.units || 'lb';
+  const bar = fmtWeight(Number(STATE.settings.bar_weight));
+
+  const rows = plan.map(({ weight, load }) => {
+    if (load.under) {
+      return `<div class="load-row">
+        <span class="load-weight">${fmtWeight(weight)}</span>
+        <span class="load-plates muted">below the bar (${bar} ${units})</span>
+      </div>`;
+    }
+    const short = load.remainder > 0
+      ? `<span class="load-short">${fmtWeight(load.loaded)} with what you have</span>`
+      : '';
+    return `<div class="load-row">
+      <span class="load-weight">${fmtWeight(weight)}</span>
+      <span class="load-plates">${escapeHtml(plateLabel(load.perSide))}</span>
+      ${short}
+    </div>`;
+  }).join('');
+
+  return `
+    <div class="loading-plan">
+      <div class="loading-plan-head">Per side <span class="muted">— ${bar} ${units} bar</span></div>
+      ${rows}
+    </div>`;
 }
 
 function targetCellInner(seg) {
@@ -434,6 +539,19 @@ function applySegmentUpdate(seg) {
     return;
   }
   refreshDayBadge();
+  refreshLoadingPlan();
+}
+
+// Overriding a set's weight changes what has to go on the bar, so the plan is
+// rebuilt alongside the row. It holds no focusable state, so replacing it
+// wholesale is safe.
+function refreshLoadingPlan() {
+  const existing = APP.querySelector('.loading-plan');
+  if (!existing || !CURRENT_DAY_KEY) return;
+  const [w, d] = CURRENT_DAY_KEY.split('-').map(Number);
+  const day = findDay(groupDays(STATE.segments), w, d);
+  if (!day) return;
+  existing.outerHTML = renderLoadingPlan(day);
 }
 
 // ---------- render: Program Overview ----------
@@ -666,7 +784,7 @@ function renderSettingsView() {
             <option value="lb" ${s.units === 'lb' ? 'selected' : ''}>lb</option>
             <option value="kg" ${s.units === 'kg' ? 'selected' : ''}>kg</option>
           </select>
-          <div class="hint">Changing this converts every weight already recorded, and resets the rounding increment to the usual one for that unit.</div>
+          <div class="hint">Changing this converts every weight already recorded. The rounding increment, bar and plates are equipment rather than quantities, so they're replaced with the usual kit for that unit instead of converted.</div>
         </div>
         <div class="field">
           <label>Rounding increment</label>
@@ -679,6 +797,15 @@ function renderSettingsView() {
         <div class="field">
           <label>Week 5 increase</label>
           <input type="number" step="0.5" min="0" max="500" id="set-week5_add" value="${s.week5_add}" />
+        </div>
+        <div class="field">
+          <label>Bar weight</label>
+          <input type="number" step="0.5" min="0" max="200" id="set-bar_weight" value="${s.bar_weight}" />
+        </div>
+        <div class="field">
+          <label>Plates you have, per side</label>
+          <input type="text" inputmode="decimal" id="set-plates" value="${escapeAttr(s.plates)}" />
+          <div class="hint">Comma separated, one entry per physical plate on a side — list a size twice if you own two pairs. Used to work out what to load.</div>
         </div>
         <button class="btn" data-action="save-settings">Save &amp; recalculate</button>
       </div>
@@ -769,6 +896,8 @@ APP.addEventListener('click', (e) => {
       rounding: document.getElementById('set-rounding').value,
       week4_add: document.getElementById('set-week4_add').value,
       week5_add: document.getElementById('set-week5_add').value,
+      bar_weight: document.getElementById('set-bar_weight').value,
+      plates: document.getElementById('set-plates').value,
     });
     return;
   }
