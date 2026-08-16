@@ -264,22 +264,33 @@ textarea { resize: vertical; min-height: 3.5rem; }
 
 .field-full { grid-column: 1 / -1; }
 
-button.btn {
+/* Not scoped to button: the export links are anchors carrying the same class,
+   and a button-only selector left them rendering as bare blue underlined text.
+   The display/line-height/text properties are the ones a button gets for free
+   and an anchor doesn't, so the two line up. */
+.btn {
+  display: inline-block;
   background: var(--accent);
   color: #fff;
-  border: none;
+  /* Transparent rather than none, so a primary button is the same height as
+     the bordered .secondary sitting next to it in the same row. */
+  border: 1px solid transparent;
   border-radius: 8px;
   padding: 0.6rem 1rem;
   font-weight: 600;
-  cursor: pointer;
+  font-family: inherit;
   font-size: 0.9rem;
+  line-height: 1.2;
+  text-align: center;
+  text-decoration: none;
+  cursor: pointer;
 }
-button.btn.secondary {
+.btn.secondary {
   background: var(--surface-2);
   border: 1px solid var(--border);
   color: var(--text);
 }
-button.btn.small { padding: 0.35rem 0.7rem; font-size: 0.8rem; }
+.btn.small { padding: 0.35rem 0.7rem; font-size: 0.8rem; }
 
 .row { display: flex; gap: 0.5rem; align-items: center; }
 .row.between { justify-content: space-between; }
