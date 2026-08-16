@@ -388,6 +388,7 @@ function renderNextView() {
       </div>
 
       ${renderLoadingPlan(day)}
+      ${renderTestHandoff(day)}
 
       <div class="field field-full" style="margin-top:0.75rem;">
         <label>Day notes (how the session felt, cues, adjustments)</label>
@@ -395,6 +396,53 @@ function renderNextView() {
       </div>
     </div>
   `;
+}
+
+// The test row whose result becomes the New 1RM, if this day has one.
+//
+// A test only feeds the program when work still to come is calculated from the
+// new max — true of the Week 6 tests, false of the Week 13 one, which closes
+// the program out and has nothing left to recalculate. Derived from the rows
+// rather than hardcoding week 6, so it stays right if the template moves.
+function newOneRmTestRow(day) {
+  const test = day.segments.find((s) => s.special === 'test');
+  if (!test) return null;
+  const feedsLaterWork = STATE.segments.some(
+    (s) => s.one_rm_ref === 'new' && s.sort_order > test.sort_order,
+  );
+  return feedsLaterWork ? test : null;
+}
+
+// Closes the loop between testing a max and the program using it. Without this
+// the lifter has to remember that the number they just wrote down also has to
+// be typed into Settings, and until they do, weeks 7-13 keep prescribing off
+// the old estimate.
+function renderTestHandoff(day) {
+  const test = newOneRmTestRow(day);
+  if (!test) return '';
+  const units = STATE.settings.units || 'lb';
+  const current = Number(STATE.settings.new_1rm);
+  const tested = test.actual_weight;
+  const hasCurrent = Number.isFinite(current);
+
+  let body;
+  if (tested == null) {
+    body = `<div class="muted">Record the max you hit in the weight box above, then set it as the New 1RM that weeks 7–13 are calculated from.</div>`;
+  } else if (hasCurrent && Math.abs(current - tested) < 1e-9) {
+    body = `<div>New 1RM is <strong>${fmtWeight(tested)} ${units}</strong> — weeks 7–13 are calculated from this.</div>`;
+  } else {
+    body = `
+      <div class="handoff-row">
+        <span>Tested <strong>${fmtWeight(tested)} ${units}</strong>${hasCurrent ? `<span class="muted">, New 1RM currently ${fmtWeight(current)}</span>` : ''}</span>
+        <button class="btn small" data-action="set-new-1rm" data-weight="${tested}">Set New 1RM to ${fmtWeight(tested)}</button>
+      </div>`;
+  }
+
+  return `
+    <div class="test-handoff">
+      <div class="test-handoff-head">Test result</div>
+      ${body}
+    </div>`;
 }
 
 // What to load for each distinct weight in the day. Sits under the set table
@@ -539,19 +587,22 @@ function applySegmentUpdate(seg) {
     return;
   }
   refreshDayBadge();
-  refreshLoadingPlan();
+  refreshDayExtras();
 }
 
-// Overriding a set's weight changes what has to go on the bar, so the plan is
-// rebuilt alongside the row. It holds no focusable state, so replacing it
-// wholesale is safe.
-function refreshLoadingPlan() {
-  const existing = APP.querySelector('.loading-plan');
-  if (!existing || !CURRENT_DAY_KEY) return;
+// The blocks under the set table both read the set weights — overriding one
+// changes what goes on the bar, and typing a tested max is what turns the
+// handoff into an offer to apply it. Neither holds focusable state, so
+// replacing them wholesale is safe.
+function refreshDayExtras() {
+  if (!CURRENT_DAY_KEY) return;
   const [w, d] = CURRENT_DAY_KEY.split('-').map(Number);
   const day = findDay(groupDays(STATE.segments), w, d);
   if (!day) return;
-  existing.outerHTML = renderLoadingPlan(day);
+  const plan = APP.querySelector('.loading-plan');
+  if (plan) plan.outerHTML = renderLoadingPlan(day);
+  const handoff = APP.querySelector('.test-handoff');
+  if (handoff) handoff.outerHTML = renderTestHandoff(day);
 }
 
 // ---------- render: Program Overview ----------
@@ -884,6 +935,14 @@ APP.addEventListener('click', (e) => {
   if (gotoDay) {
     CURRENT_DAY_KEY = `${gotoDay.dataset.week}-${gotoDay.dataset.day}`;
     switchView('next');
+    return;
+  }
+
+  const setNewRm = e.target.closest('[data-action="set-new-1rm"]');
+  if (setNewRm) {
+    // Send the stored value, not the rounded one on the label, so a converted
+    // max doesn't lose precision on its way into the settings.
+    patchSettings({ new_1rm: setNewRm.dataset.weight });
     return;
   }
 
